@@ -1,0 +1,24 @@
+{
+  "name": "@moltrust/openclaw",
+  "version": "0.1.0",
+  "description": "MolTrust trust verification plugin for OpenClaw — W3C DID identity, reputation scoring, and VC verification for AI agents",
+  "keywords": ["openclaw", "moltrust", "did", "verifiable-credentials", "agent-trust", "x402", "reputation"],
+  "homepage": "https://moltrust.ch",
+  "repository": { "type": "git", "url": "https://github.com/MoltyCel/moltrust-openclaw" },
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "skills", "openclaw.plugin.json"],
+  "openclaw": { "extensions": ["./dist/index.js"] },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "@types/node": "^20.0.0"
+  }
+}
