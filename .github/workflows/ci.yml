@@ -17,11 +17,4 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
       - name: Verify plugin manifest
-        run: |
-          node -e "
-            const manifest = require(./openclaw.plugin.json);
-            const pkg = require(./package.json);
-            if (\!manifest.id) throw new Error(Missing plugin id);
-            if (\!pkg.openclaw?.extensions?.length) throw new Error(Missing openclaw.extensions);
-            console.log(Plugin manifest valid — id:, manifest.id);
-          "
+        run: node -e "const m=require(./openclaw.plugin.json),p=require(./package.json);if(!m.id)throw new Error(Missing plugin id);if(!p.openclaw?.extensions?.length)throw new Error(Missing openclaw.extensions);console.log(Plugin manifest valid — id:,m.id);"
