@@ -19,26 +19,39 @@ interface MolTrustConfig {
   agentDid?: string;
 }
 
+/** Matches GET /skill/trust-score/{did} response */
 interface TrustScoreResult {
   did: string;
-  score: number;
+  trust_score: number | null;
   grade: string;
-  verifications: string[];
-  sybilRisk: string;
-  lastUpdated: string;
+  breakdown: {
+    direct_score: number;
+    propagated_score: number;
+    cross_vertical_bonus: number;
+    interaction_bonus: number;
+    sybil_penalty: number;
+    computation_method: string;
+  };
+  endorser_count: number;
+  withheld: boolean;
+  flags: string[];
+  flag_count: number;
+  computed_at: string | null;
+  cache_valid_until: string | null;
 }
 
+/** Matches GET /identity/verify/{did} response */
 interface VerifyResult {
   did: string;
   verified: boolean;
-  credential?: {
-    type: string;
-    issuer: string;
-    issuanceDate: string;
-    expirationDate?: string;
-  };
-  trustScore?: number;
-  message: string;
+  reputation: number;
+}
+
+/** Matches GET /reputation/query/{did} response */
+interface ReputationResult {
+  did: string;
+  score: number;
+  total_ratings: number;
 }
 
 // ─── API Client ───────────────────────────────────────────────────────────────
@@ -88,9 +101,9 @@ class MolTrustClient {
     return this.request<TrustScoreResult>(`/skill/trust-score/${encodeURIComponent(did)}`);
   }
 
-  /** Free trust score by wallet address (no API key needed) */
-  async getWalletScoreFree(address: string): Promise<{ score: number; grade: string; address: string }> {
-    return this.request(`/guard/api/agent/score-free/${encodeURIComponent(address)}`);
+  /** Get reputation (ratings) for a DID */
+  async getReputation(did: string): Promise<ReputationResult> {
+    return this.request<ReputationResult>(`/reputation/query/${encodeURIComponent(did)}`);
   }
 
   /** Check if API key is valid */
@@ -113,15 +126,23 @@ function gradeColor(score: number): string {
 }
 
 function formatTrustResult(result: TrustScoreResult): string {
-  const icon = gradeColor(result.score);
-  return [
-    `${icon} **MolTrust Score: ${result.score}/100 (${result.grade})**`,
+  const score = result.trust_score ?? 0;
+  const icon = gradeColor(score);
+  const lines = [
+    `${icon} **MolTrust Score: ${result.withheld ? "withheld" : `${score}/100`} (${result.grade})**`,
     `DID: \`${result.did}\``,
-    `Sybil Risk: ${result.sybilRisk}`,
-    `Verifications: ${result.verifications.join(", ") || "none"}`,
-    `Updated: ${result.lastUpdated}`,
-    `🔗 https://moltrust.ch`,
-  ].join("\n");
+    `Endorsers: ${result.endorser_count}`,
+    `Sybil Penalty: ${result.breakdown.sybil_penalty}`,
+    `Method: ${result.breakdown.computation_method}`,
+  ];
+  if (result.flags.length > 0) {
+    lines.push(`Flags: ${result.flags.join(", ")}`);
+  }
+  if (result.computed_at) {
+    lines.push(`Updated: ${result.computed_at}`);
+  }
+  lines.push(`🔗 https://moltrust.ch`);
+  return lines.join("\n");
 }
 
 // ─── Plugin Entry ────────────────────────────────────────────────────────────
@@ -153,18 +174,8 @@ export default function register(api: any) {
         const lines = [
           result.verified ? "✅ **Agent verified**" : "❌ **Agent NOT verified**",
           `DID: \`${result.did}\``,
-          result.message,
+          `Reputation: ${result.reputation}/5`,
         ];
-        if (result.credential) {
-          lines.push(
-            `Credential: ${result.credential.type}`,
-            `Issuer: ${result.credential.issuer}`,
-            `Issued: ${result.credential.issuanceDate}`,
-          );
-        }
-        if (result.trustScore !== undefined) {
-          lines.push(`Trust Score: ${result.trustScore}/100 ${gradeColor(result.trustScore)}`);
-        }
         return lines.join("\n");
       } catch (err: any) {
         return `❌ MolTrust verify failed: ${err.message}`;
@@ -192,8 +203,7 @@ export default function register(api: any) {
     handler: async ({ identifier }: { identifier: string }) => {
       try {
         if (identifier.startsWith("0x")) {
-          const result = await client.getWalletScoreFree(identifier);
-          return `${gradeColor(result.score)} **Trust Score: ${result.score}/100 (${result.grade})**\nWallet: \`${result.address}\``;
+          return `❌ Wallet scoring not yet available. Use a DID (did:moltrust:...) instead.`;
         } else {
           const result = await client.getTrustScore(identifier);
           return formatTrustResult(result);
@@ -218,10 +228,8 @@ export default function register(api: any) {
       try {
         const result = await client.verifyDid(did);
         const status = result.verified ? "✅ Verified" : "❌ Not verified";
-        const score = result.trustScore !== undefined
-          ? ` | Score: ${result.trustScore}/100 ${gradeColor(result.trustScore)}`
-          : "";
-        return { text: `${status}${score}\n${result.message}` };
+        const rep = result.reputation > 0 ? ` | Reputation: ${result.reputation}/5` : "";
+        return { text: `${status}${rep}\n${result.did}` };
       } catch (err: any) {
         return { text: `MolTrust error: ${err.message}` };
       }
@@ -241,10 +249,7 @@ export default function register(api: any) {
       }
       try {
         if (identifier.startsWith("0x")) {
-          const result = await client.getWalletScoreFree(identifier);
-          return {
-            text: `${gradeColor(result.score)} Score: ${result.score}/100 (${result.grade})\nWallet: ${result.address}`,
-          };
+          return { text: "Wallet scoring not yet available. Use a DID (did:moltrust:...) instead." };
         } else {
           const result = await client.getTrustScore(identifier);
           return { text: formatTrustResult(result) };
@@ -314,10 +319,8 @@ export default function register(api: any) {
           try {
             const result = await client.verifyDid(did);
             console.log(result.verified ? "✅ Verified" : "❌ Not verified");
-            console.log(`Message: ${result.message}`);
-            if (result.trustScore !== undefined) {
-              console.log(`Trust Score: ${result.trustScore}/100`);
-            }
+            console.log(`DID: ${result.did}`);
+            console.log(`Reputation: ${result.reputation}/5`);
           } catch (err: any) {
             console.error(`Error: ${err.message}`);
             process.exit(1);
@@ -330,12 +333,13 @@ export default function register(api: any) {
         .action(async (identifier: string) => {
           try {
             if (identifier.startsWith("0x")) {
-              const result = await client.getWalletScoreFree(identifier);
-              console.log(`Score: ${result.score}/100 (${result.grade})`);
+              console.log("Wallet scoring not yet available. Use a DID instead.");
             } else {
               const result = await client.getTrustScore(identifier);
-              console.log(`Score: ${result.score}/100 (${result.grade})`);
-              console.log(`Sybil Risk: ${result.sybilRisk}`);
+              const score = result.trust_score ?? 0;
+              console.log(`Score: ${result.withheld ? "withheld" : `${score}/100`} (${result.grade})`);
+              console.log(`Sybil Penalty: ${result.breakdown.sybil_penalty}`);
+              console.log(`Endorsers: ${result.endorser_count}`);
             }
           } catch (err: any) {
             console.error(`Error: ${err.message}`);
