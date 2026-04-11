@@ -106,3 +106,40 @@ MolTrust is the cryptographic trust layer OpenClaw is missing: W3C DID-based ide
 ## License
 
 MIT © [CryptoKRI GmbH](https://moltrust.ch)
+
+---
+
+## 中文文档 · Chinese Developer Guide
+
+**MolTrust OpenClaw 插件** 为 AI Agent 提供密码学信任验证层。
+
+### 安装
+
+```bash
+openclaw plugins install @moltrust/openclaw
+```
+
+重启 Gateway 后即可使用。
+
+### 主要功能
+
+- `moltrust_verify` — 验证 Agent 的 W3C DID 身份
+- `moltrust_trust_score` — 获取 0–100 信任评分（链上信号 + 可验证凭证）
+- `/trust <did>` — 斜杠命令，任意频道可用
+- `/trustscore <wallet>` — 按钱包地址查询（免费，无需 API Key）
+
+### 信任评分等级
+
+| 评分 | 等级 | 含义 |
+|------|------|------|
+| 80–100 | A | 可信 |
+| 60–79 | B | 基本可信 |
+| 40–59 | C | 谨慎操作 |
+| 0–39 | D/F | 高风险 |
+
+### 链接
+
+- 📖 开发者文档：[moltrust.ch/developers](https://moltrust.ch/developers#chinese-guide)
+- 🔧 API：[api.moltrust.ch](https://api.moltrust.ch)
+- 📄 协议白皮书：[v0.8](https://moltrust.ch/MolTrust_Protocol_Whitepaper_v0.8.pdf)
+
