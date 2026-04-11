@@ -1,5 +1,8 @@
 # @moltrust/openclaw
 
+[![MolTrust Verified](https://api.moltrust.ch/badge/did:moltrust:d34ed796a4dc4698)](https://moltrust.ch)
+[![npm](https://img.shields.io/npm/v/@moltrust/openclaw)](https://npmjs.com/package/@moltrust/openclaw)
+
 > W3C DID trust verification plugin for [OpenClaw](https://openclaw.ai)
 
 MolTrust adds cryptographic agent identity verification to OpenClaw — so your agent knows who it's talking to before it acts.
@@ -86,15 +89,17 @@ openclaw moltrust score <id>       # get trust score
 ## Why trust verification matters
 
 OpenClaw agents can hold wallets, execute payments, and install skills autonomously.  
-[341 malicious skills](https://rnwy.com/blog/openclaw-ecosystem-agent-verification) were found on ClawHub in early 2026 — credential stealers, data exfiltration, prompt injection.
+341 malicious skills were found on ClawHub in early 2026 — credential stealers, data exfiltration, prompt injection. VirusTotal catches known signatures, but not impersonation, sybil clusters, or slow-burn trust manipulation.
 
 MolTrust is the cryptographic trust layer OpenClaw is missing: W3C DID-based identity, on-chain anchoring on Base, and Verifiable Credentials that can't be faked.
 
 ## Links
 
+- 🔍 [Wallet Trust Profile](https://moltrust.ch/wallet/0x380238347e58435f40B4da1F1A045A271D5838F5) — shadow score for any wallet
+
 - 🌐 [moltrust.ch](https://moltrust.ch)
 - 📖 [KYA Whitepaper](https://moltrust.ch/MolTrust_KYA_Whitepaper.pdf)
-- 🔧 [MCP Server](https://api.moltrust.ch/mcp) — 39 tools
+- 🔧 [MCP Server](https://api.moltrust.ch/mcp) — 48 tools
 - 🐦 [@moltrust](https://x.com/moltrust)
 - 📦 [npm](https://npmjs.com/package/@moltrust/openclaw)
 

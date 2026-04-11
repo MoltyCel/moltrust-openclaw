@@ -2,24 +2,59 @@
   "id": "moltrust",
   "name": "MolTrust",
   "description": "W3C DID identity verification, trust scoring, sybil detection, and Verifiable Credential checks for AI agents via MolTrust.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "required": [],
     "properties": {
-      "apiKey": { "type": "string", "description": "MolTrust API key — get one at api.moltrust.ch/auth/signup" },
-      "apiUrl": { "type": "string", "description": "MolTrust API base URL", "default": "https://api.moltrust.ch" },
-      "minTrustScore": { "type": "number", "description": "Minimum trust score (0–100) to interact with.", "minimum": 0, "maximum": 100, "default": 0 },
-      "verifyOnStart": { "type": "boolean", "description": "Verify own agent DID on gateway start.", "default": false },
-      "agentDid": { "type": "string", "description": "Your agent DID for self-verification." }
+      "apiKey": {
+        "type": "string",
+        "description": "MolTrust API key \u2014 get one at api.moltrust.ch/auth/signup"
+      },
+      "apiUrl": {
+        "type": "string",
+        "description": "MolTrust API base URL",
+        "default": "https://api.moltrust.ch"
+      },
+      "minTrustScore": {
+        "type": "number",
+        "description": "Minimum trust score (0\u2013100) to interact with.",
+        "minimum": 0,
+        "maximum": 100,
+        "default": 0
+      },
+      "verifyOnStart": {
+        "type": "boolean",
+        "description": "Verify own agent DID on gateway start.",
+        "default": false
+      },
+      "agentDid": {
+        "type": "string",
+        "description": "Your agent DID for self-verification."
+      }
     }
   },
   "uiHints": {
-    "apiKey": { "label": "MolTrust API Key", "sensitive": true, "placeholder": "mt_live_..." },
-    "apiUrl": { "label": "API URL", "placeholder": "https://api.moltrust.ch" },
-    "minTrustScore": { "label": "Minimum Trust Score", "placeholder": "0" },
-    "verifyOnStart": { "label": "Verify own DID on start" },
-    "agentDid": { "label": "Your Agent DID", "placeholder": "did:moltrust:..." }
+    "apiKey": {
+      "label": "MolTrust API Key",
+      "sensitive": true,
+      "placeholder": "mt_live_..."
+    },
+    "apiUrl": {
+      "label": "API URL",
+      "placeholder": "https://api.moltrust.ch"
+    },
+    "minTrustScore": {
+      "label": "Minimum Trust Score",
+      "placeholder": "0"
+    },
+    "verifyOnStart": {
+      "label": "Verify own DID on start"
+    },
+    "agentDid": {
+      "label": "Your Agent DID",
+      "placeholder": "did:moltrust:..."
+    }
   }
 }

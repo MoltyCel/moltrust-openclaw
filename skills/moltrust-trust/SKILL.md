@@ -17,6 +17,12 @@ Always verify agents before delegating sensitive tasks, executing payments, shar
 | 40–59  | C | Proceed with caution |
 | 0–39   | D/F | High risk |
 
+## Wallet Shadow Score
+You can also check any wallet's trust profile — even if the wallet owner hasn't registered a DID yet. Use a wallet address (0x...) with `moltrust_trust_score`.
+
+## Live Badge
+Add to any README: `[![MolTrust](https://api.moltrust.ch/badge/YOUR_DID)](https://moltrust.ch)`
+
 ## Quick commands
 - `/trust did:moltrust:abc123` — verify a DID
 - `/trustscore 0x1234...` — score by wallet (free, no key needed)
