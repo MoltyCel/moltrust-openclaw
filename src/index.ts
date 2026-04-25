@@ -1,109 +1,23 @@
 /**
- * @moltrust/openclaw — MolTrust trust verification plugin for OpenClaw
+ * @moltrust/openclaw v2 — entry.
  *
- * Registers:
- *   - Agent tools: moltrust_verify, moltrust_trust_score, moltrust_issue_vc
- *   - Slash commands: /trust, /trustscore
- *   - Background service: moltrust-monitor
- *   - Gateway RPC: moltrust.status, moltrust.verify
- *   - CLI command: openclaw moltrust
+ * Wires the four lifecycle hooks (before_install, before_tool_call,
+ * inbound_claim, gateway_start) plus the v1 surface (tools, slash commands,
+ * gateway RPC, CLI).
+ *
+ * Hook handlers live in src/hooks/ — each exposes a makeXxxHandler(deps)
+ * factory so they're independently unit-testable without an OpenClaw host.
  */
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface MolTrustConfig {
-  apiKey?: string;
-  apiUrl?: string;
-  minTrustScore?: number;
-  verifyOnStart?: boolean;
-  agentDid?: string;
-}
-
-interface TrustScoreResult {
-  did: string;
-  score: number;
-  grade: string;
-  verifications: string[];
-  sybilRisk: string;
-  lastUpdated: string;
-}
-
-interface VerifyResult {
-  did: string;
-  verified: boolean;
-  credential?: {
-    type: string;
-    issuer: string;
-    issuanceDate: string;
-    expirationDate?: string;
-  };
-  trustScore?: number;
-  message: string;
-}
-
-// ─── API Client ───────────────────────────────────────────────────────────────
-
-class MolTrustClient {
-  private apiKey: string;
-  private baseUrl: string;
-
-  constructor(config: MolTrustConfig) {
-    this.apiKey = config.apiKey ?? "";
-    this.baseUrl = config.apiUrl ?? "https://api.moltrust.ch";
-  }
-
-  private async request<T>(
-    path: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "User-Agent": "moltrust-openclaw/0.1.0",
-    };
-
-    if (this.apiKey) {
-      headers["x-api-key"] = this.apiKey;
-    }
-
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...options,
-      headers: { ...headers, ...(options.headers as Record<string, string>) },
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`MolTrust API error ${response.status}: ${text}`);
-    }
-
-    return response.json() as Promise<T>;
-  }
-
-  /** Verify a DID — no API key needed for basic check */
-  async verifyDid(did: string): Promise<VerifyResult> {
-    return this.request<VerifyResult>(`/identity/verify/${encodeURIComponent(did)}`);
-  }
-
-  /** Get trust score for a DID */
-  async getTrustScore(did: string): Promise<TrustScoreResult> {
-    return this.request<TrustScoreResult>(`/skill/trust-score/${encodeURIComponent(did)}`);
-  }
-
-  /** Free trust score by wallet address (no API key needed) */
-  async getWalletScoreFree(address: string): Promise<{ score: number; grade: string; address: string }> {
-    return this.request(`/guard/api/agent/score-free/${encodeURIComponent(address)}`);
-  }
-
-  /** Check if API key is valid */
-  async ping(): Promise<{ status: string; version: string }> {
-    return this.request("/health");
-  }
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function getConfig(api: any): MolTrustConfig {
-  return api.config?.plugins?.entries?.moltrust?.config ?? {};
-}
+import { MolTrustClient } from "./client.js";
+import { makeBeforeInstallHandler } from "./hooks/before-install.js";
+import { makeBeforeToolCallHandler } from "./hooks/before-tool-call.js";
+import { makeGatewayStartHandler } from "./hooks/gateway-start.js";
+import { makeInboundClaimHandler } from "./hooks/inbound-claim.js";
+import {
+  DEFAULT_CONFIG,
+  type MolTrustConfig,
+  type OpenClawPluginApi,
+} from "./openclaw-types.js";
 
 function gradeColor(score: number): string {
   if (score >= 80) return "🟢";
@@ -112,171 +26,222 @@ function gradeColor(score: number): string {
   return "🔴";
 }
 
-function formatTrustResult(result: TrustScoreResult): string {
-  const icon = gradeColor(result.score);
-  return [
-    `${icon} **MolTrust Score: ${result.score}/100 (${result.grade})**`,
-    `DID: \`${result.did}\``,
-    `Sybil Risk: ${result.sybilRisk}`,
-    `Verifications: ${result.verifications.join(", ") || "none"}`,
-    `Updated: ${result.lastUpdated}`,
-    `🔗 https://moltrust.ch`,
-  ].join("\n");
+function resolveConfig(api: OpenClawPluginApi): Required<MolTrustConfig> {
+  const fromPluginConfig = (api.pluginConfig as MolTrustConfig | undefined) ?? {};
+  const fromConfigEntries =
+    (api.config?.plugins?.entries?.moltrust?.config as MolTrustConfig | undefined) ??
+    {};
+  return { ...DEFAULT_CONFIG, ...fromConfigEntries, ...fromPluginConfig };
 }
 
-// ─── Plugin Entry ────────────────────────────────────────────────────────────
-
-export default function register(api: any) {
-  const cfg = getConfig(api);
+export default function register(api: OpenClawPluginApi): void {
+  const cfg = resolveConfig(api);
   const client = new MolTrustClient(cfg);
+  const logger = api.logger;
 
-  // ── Agent Tool: moltrust_verify ──────────────────────────────────────────
-  api.registerTool({
+  // ── Lifecycle hooks (v2) ───────────────────────────────────────────────
+  api.on(
+    "before_install",
+    makeBeforeInstallHandler({ cfg, logger }),
+  );
+  api.on(
+    "before_tool_call",
+    makeBeforeToolCallHandler({ cfg, client, logger }),
+  );
+  api.on(
+    "inbound_claim",
+    makeInboundClaimHandler({ cfg, client, logger }),
+  );
+  api.on(
+    "gateway_start",
+    makeGatewayStartHandler({ cfg, client, logger }),
+  );
+
+  // ── v1 surface preserved: tools / commands / RPC / CLI ─────────────────
+  api.registerTool?.({
     name: "moltrust_verify",
     description:
-      "Verify an AI agent's W3C DID identity against MolTrust trust infrastructure. " +
-      "Returns verified status, trust score, and Verifiable Credential details. " +
-      "Use this before trusting another agent with sensitive tasks or payments.",
+      "Verify an AI agent's W3C DID identity against MolTrust. Returns verified status, trust score, and Verifiable Credential details.",
     parameters: {
       type: "object",
       required: ["did"],
       properties: {
-        did: {
-          type: "string",
-          description: "The DID to verify, e.g. did:moltrust:abc123 or did:key:z6Mk...",
-        },
+        did: { type: "string", description: "DID to verify, e.g. did:moltrust:abc123" },
       },
     },
-    handler: async ({ did }: { did: string }) => {
+    handler: async (args) => {
+      const did = String((args as { did?: unknown }).did ?? "");
       try {
-        const result = await client.verifyDid(did);
-        const lines = [
-          result.verified ? "✅ **Agent verified**" : "❌ **Agent NOT verified**",
-          `DID: \`${result.did}\``,
-          result.message,
+        const r = await client.verifyDid(did);
+        const out: string[] = [
+          r.verified ? "✅ Agent verified" : "❌ Agent NOT verified",
+          `DID: \`${r.did}\``,
         ];
-        if (result.credential) {
-          lines.push(
-            `Credential: ${result.credential.type}`,
-            `Issuer: ${result.credential.issuer}`,
-            `Issued: ${result.credential.issuanceDate}`,
+        if (r.message) out.push(r.message);
+        if (r.credential) {
+          out.push(
+            `Credential: ${r.credential.type}`,
+            `Issuer: ${r.credential.issuer}`,
+            `Issued: ${r.credential.issuanceDate}`,
           );
         }
-        if (result.trustScore !== undefined) {
-          lines.push(`Trust Score: ${result.trustScore}/100 ${gradeColor(result.trustScore)}`);
+        if (r.trustScore !== undefined) {
+          out.push(
+            `Trust Score: ${r.trustScore}/100 ${gradeColor(r.trustScore)}`,
+          );
         }
-        return lines.join("\n");
-      } catch (err: any) {
-        return `❌ MolTrust verify failed: ${err.message}`;
+        return out.join("\n");
+      } catch (err) {
+        return `❌ MolTrust verify failed: ${(err as Error).message}`;
       }
     },
   });
 
-  // ── Agent Tool: moltrust_trust_score ─────────────────────────────────────
-  api.registerTool({
+  api.registerTool?.({
     name: "moltrust_trust_score",
     description:
-      "Get the MolTrust trust score (0–100) for an AI agent by DID or wallet address. " +
-      "Includes sybil detection, on-chain behavior analysis, and reputation signals. " +
-      "Scores above 80 are trusted; below 40 are high risk.",
+      "Get the MolTrust trust score (0-100) for an AI agent by DID or wallet address. Includes sybil detection and behavioral history.",
     parameters: {
       type: "object",
       required: ["identifier"],
       properties: {
-        identifier: {
+        identifier: { type: "string", description: "DID or 0x EVM address" },
+      },
+    },
+    handler: async (args) => {
+      const identifier = String((args as { identifier?: unknown }).identifier ?? "");
+      try {
+        if (identifier.startsWith("0x")) {
+          const r = await client.getWalletScoreFree(identifier);
+          return `${gradeColor(r.score)} Score: ${r.score}/100 (${r.grade}) — wallet ${r.address}`;
+        }
+        const r = await client.getTrustScore(identifier);
+        return `${gradeColor(r.score)} ${r.did} → ${r.score}/100 (${r.grade})`;
+      } catch (err) {
+        return `❌ MolTrust trust score failed: ${(err as Error).message}`;
+      }
+    },
+  });
+
+  api.registerTool?.({
+    name: "moltrust_endorse",
+    description:
+      "Endorse another agent's skill via MolTrust SkillEndorsementCredential (W3C VC, 90-day expiry). Requires apiKey in plugin config.",
+    parameters: {
+      type: "object",
+      required: ["endorsed_did", "skill", "evidence_hash", "vertical"],
+      properties: {
+        endorsed_did: { type: "string", description: "DID of the agent being endorsed" },
+        skill: { type: "string", description: "Skill being endorsed (free-text label)" },
+        evidence_hash: {
           type: "string",
-          description: "DID (did:moltrust:...) or EVM wallet address (0x...)",
+          description: "SHA-256 of the interaction proof / artefact backing the endorsement",
+        },
+        vertical: {
+          type: "string",
+          description: "MolTrust vertical (shopping, travel, sports, prediction, salesguard, ...)",
+        },
+        evidence_timestamp: {
+          type: "string",
+          description: "ISO 8601 timestamp; defaults to now() if omitted",
         },
       },
     },
-    handler: async ({ identifier }: { identifier: string }) => {
+    handler: async (args) => {
+      const a = args as {
+        endorsed_did?: string;
+        skill?: string;
+        evidence_hash?: string;
+        vertical?: string;
+        evidence_timestamp?: string;
+      };
       try {
-        if (identifier.startsWith("0x")) {
-          const result = await client.getWalletScoreFree(identifier);
-          return `${gradeColor(result.score)} **Trust Score: ${result.score}/100 (${result.grade})**\nWallet: \`${result.address}\``;
-        } else {
-          const result = await client.getTrustScore(identifier);
-          return formatTrustResult(result);
-        }
-      } catch (err: any) {
-        return `❌ MolTrust trust score failed: ${err.message}`;
+        const r = await client.endorse({
+          endorsed_did: String(a.endorsed_did ?? ""),
+          skill: String(a.skill ?? ""),
+          evidence_hash: String(a.evidence_hash ?? ""),
+          vertical: String(a.vertical ?? ""),
+          evidence_timestamp: a.evidence_timestamp ?? new Date().toISOString(),
+        });
+        const idTag = r.id ? ` (id ${r.id})` : "";
+        return `✅ Endorsed ${a.endorsed_did} for ${a.skill}${idTag}`;
+      } catch (err) {
+        return `❌ MolTrust endorse failed: ${(err as Error).message}`;
       }
     },
   });
 
-  // ── Slash Command: /trust ─────────────────────────────────────────────────
-  api.registerCommand({
+  api.registerCommand?.({
     name: "trust",
-    description: "Verify an agent DID via MolTrust. Usage: /trust did:moltrust:...",
+    description: "Verify an agent DID. Usage: /trust did:moltrust:...",
     acceptsArgs: true,
     requireAuth: true,
-    handler: async (ctx: any) => {
-      const did = ctx.args?.trim();
-      if (!did) {
-        return { text: "Usage: /trust <DID>\nExample: /trust did:moltrust:abc123" };
-      }
+    handler: async (ctx) => {
+      const did = (ctx.args ?? "").trim();
+      if (!did) return { text: "Usage: /trust <DID>" };
       try {
-        const result = await client.verifyDid(did);
-        const status = result.verified ? "✅ Verified" : "❌ Not verified";
-        const score = result.trustScore !== undefined
-          ? ` | Score: ${result.trustScore}/100 ${gradeColor(result.trustScore)}`
-          : "";
-        return { text: `${status}${score}\n${result.message}` };
-      } catch (err: any) {
-        return { text: `MolTrust error: ${err.message}` };
+        const r = await client.verifyDid(did);
+        const score =
+          r.trustScore !== undefined
+            ? ` | Score: ${r.trustScore}/100 ${gradeColor(r.trustScore)}`
+            : "";
+        return {
+          text: `${r.verified ? "✅ Verified" : "❌ Not verified"}${score}\n${r.message ?? ""}`,
+        };
+      } catch (err) {
+        return { text: `MolTrust error: ${(err as Error).message}` };
       }
     },
   });
 
-  // ── Slash Command: /trustscore ────────────────────────────────────────────
-  api.registerCommand({
+  api.registerCommand?.({
     name: "trustscore",
-    description: "Get trust score for a DID or wallet. Usage: /trustscore 0x... or /trustscore did:...",
+    description: "Get trust score for a DID or wallet. Usage: /trustscore <id>",
     acceptsArgs: true,
     requireAuth: true,
-    handler: async (ctx: any) => {
-      const identifier = ctx.args?.trim();
-      if (!identifier) {
-        return { text: "Usage: /trustscore <DID or wallet address>" };
-      }
+    handler: async (ctx) => {
+      const id = (ctx.args ?? "").trim();
+      if (!id) return { text: "Usage: /trustscore <DID or 0x...>" };
       try {
-        if (identifier.startsWith("0x")) {
-          const result = await client.getWalletScoreFree(identifier);
+        if (id.startsWith("0x")) {
+          const r = await client.getWalletScoreFree(id);
           return {
-            text: `${gradeColor(result.score)} Score: ${result.score}/100 (${result.grade})\nWallet: ${result.address}`,
+            text: `${gradeColor(r.score)} ${r.score}/100 (${r.grade}) — ${r.address}`,
           };
-        } else {
-          const result = await client.getTrustScore(identifier);
-          return { text: formatTrustResult(result) };
         }
-      } catch (err: any) {
-        return { text: `MolTrust error: ${err.message}` };
+        const r = await client.getTrustScore(id);
+        return { text: `${gradeColor(r.score)} ${r.did} → ${r.score}/100 (${r.grade})` };
+      } catch (err) {
+        return { text: `MolTrust error: ${(err as Error).message}` };
       }
     },
   });
 
-  // ── Gateway RPC: moltrust.status ──────────────────────────────────────────
-  api.registerGatewayMethod("moltrust.status", async ({ respond }: any) => {
+  api.registerGatewayMethod?.("moltrust.status", async ({ respond }) => {
     try {
       const health = await client.ping();
       respond(true, {
         ok: true,
         api: health,
+        version: "2.0.0",
         config: {
-          apiUrl: cfg.apiUrl ?? "https://api.moltrust.ch",
+          apiUrl: cfg.apiUrl,
           hasApiKey: Boolean(cfg.apiKey),
-          minTrustScore: cfg.minTrustScore ?? 0,
-          agentDid: cfg.agentDid ?? null,
+          minTrustScore: cfg.minTrustScore,
+          gateAllTools: cfg.gateAllTools,
+          sensitivePrefixes: cfg.sensitivePrefixes,
+          installAllowlistSize: cfg.installAllowlist.length,
+          installBlocklistSize: cfg.installBlocklist.length,
+          agentDid: cfg.agentDid || null,
         },
       });
-    } catch (err: any) {
-      respond(false, { ok: false, error: err.message });
+    } catch (err) {
+      respond(false, { ok: false, error: (err as Error).message });
     }
   });
 
-  // ── Gateway RPC: moltrust.verify ──────────────────────────────────────────
-  api.registerGatewayMethod("moltrust.verify", async ({ params, respond }: any) => {
-    const did = params?.did;
+  api.registerGatewayMethod?.("moltrust.verify", async ({ params, respond }) => {
+    const did = typeof params?.did === "string" ? params.did : undefined;
     if (!did) {
       respond(false, { error: "did is required" });
       return;
@@ -284,104 +249,81 @@ export default function register(api: any) {
     try {
       const result = await client.verifyDid(did);
       respond(true, result);
-    } catch (err: any) {
-      respond(false, { error: err.message });
+    } catch (err) {
+      respond(false, { error: (err as Error).message });
     }
   });
 
-  // ── CLI command: openclaw moltrust ────────────────────────────────────────
-  api.registerCli(
-    ({ program }: any) => {
-      const cmd = program.command("moltrust").description("MolTrust trust operations");
-
-      cmd
-        .command("status")
-        .description("Check MolTrust API connectivity")
-        .action(async () => {
-          try {
-            const health = await client.ping();
-            console.log(`✅ MolTrust API OK — ${health.version}`);
-          } catch (err: any) {
-            console.error(`❌ MolTrust API unreachable: ${err.message}`);
-            process.exit(1);
+  api.registerCli?.(
+    ({ program }) => {
+      // Commander-compatible registration. Use loose typing here because
+      // the host-provided program object isn't known at compile time.
+      const p = program as {
+        command: (name: string) => {
+          description: (d: string) => unknown;
+          command: (name: string) => {
+            description: (d: string) => unknown;
+            action: (fn: (...args: unknown[]) => Promise<void> | void) => unknown;
+          };
+        };
+      };
+      const cmd = p.command("moltrust");
+      (cmd as { description: (d: string) => unknown }).description(
+        "MolTrust trust operations",
+      );
+      (cmd as { command: (n: string) => { description: (d: string) => unknown; action: (fn: (...args: unknown[]) => Promise<void>) => unknown } }).command(
+        "status",
+      ).action(async () => {
+        try {
+          const h = await client.ping();
+          // eslint-disable-next-line no-console
+          console.log(`✅ MolTrust API OK — ${h.version ?? "ok"}`);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`❌ ${(err as Error).message}`);
+          process.exit(1);
+        }
+      });
+      (cmd as { command: (n: string) => { description: (d: string) => unknown; action: (fn: (...args: unknown[]) => Promise<void>) => unknown } }).command(
+        "verify <did>",
+      ).action(async (did: unknown) => {
+        try {
+          const r = await client.verifyDid(String(did));
+          // eslint-disable-next-line no-console
+          console.log(r.verified ? "✅ Verified" : "❌ Not verified");
+          if (r.message) console.log(r.message);
+          if (r.trustScore !== undefined) console.log(`Trust Score: ${r.trustScore}/100`);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`Error: ${(err as Error).message}`);
+          process.exit(1);
+        }
+      });
+      (cmd as { command: (n: string) => { description: (d: string) => unknown; action: (fn: (...args: unknown[]) => Promise<void>) => unknown } }).command(
+        "score <id>",
+      ).action(async (id: unknown) => {
+        const idStr = String(id);
+        try {
+          if (idStr.startsWith("0x")) {
+            const r = await client.getWalletScoreFree(idStr);
+            // eslint-disable-next-line no-console
+            console.log(`Score: ${r.score}/100 (${r.grade})`);
+          } else {
+            const r = await client.getTrustScore(idStr);
+            // eslint-disable-next-line no-console
+            console.log(`Score: ${r.score}/100 (${r.grade})`);
           }
-        });
-
-      cmd
-        .command("verify <did>")
-        .description("Verify an agent DID")
-        .action(async (did: string) => {
-          try {
-            const result = await client.verifyDid(did);
-            console.log(result.verified ? "✅ Verified" : "❌ Not verified");
-            console.log(`Message: ${result.message}`);
-            if (result.trustScore !== undefined) {
-              console.log(`Trust Score: ${result.trustScore}/100`);
-            }
-          } catch (err: any) {
-            console.error(`Error: ${err.message}`);
-            process.exit(1);
-          }
-        });
-
-      cmd
-        .command("score <identifier>")
-        .description("Get trust score for DID or wallet address")
-        .action(async (identifier: string) => {
-          try {
-            if (identifier.startsWith("0x")) {
-              const result = await client.getWalletScoreFree(identifier);
-              console.log(`Score: ${result.score}/100 (${result.grade})`);
-            } else {
-              const result = await client.getTrustScore(identifier);
-              console.log(`Score: ${result.score}/100 (${result.grade})`);
-              console.log(`Sybil Risk: ${result.sybilRisk}`);
-            }
-          } catch (err: any) {
-            console.error(`Error: ${err.message}`);
-            process.exit(1);
-          }
-        });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`Error: ${(err as Error).message}`);
+          process.exit(1);
+        }
+      });
     },
-    { commands: ["moltrust"] }
+    { commands: ["moltrust"] },
   );
 
-  // ── Background Service: moltrust-monitor ─────────────────────────────────
-  let monitorInterval: ReturnType<typeof setInterval> | null = null;
-
-  api.registerService({
-    id: "moltrust-monitor",
-    start: async () => {
-      // Self-verify own DID on startup if configured
-      if (cfg.verifyOnStart && cfg.agentDid) {
-        try {
-          const result = await client.verifyDid(cfg.agentDid);
-          api.logger?.info(
-            `[MolTrust] Self-verification: ${result.verified ? "✅ verified" : "❌ not verified"} (${cfg.agentDid})`
-          );
-        } catch (err: any) {
-          api.logger?.warn(`[MolTrust] Self-verification failed: ${err.message}`);
-        }
-      }
-
-      // Periodic health ping every 6 hours
-      monitorInterval = setInterval(async () => {
-        try {
-          await client.ping();
-          api.logger?.debug("[MolTrust] API health OK");
-        } catch (err: any) {
-          api.logger?.warn(`[MolTrust] API health check failed: ${err.message}`);
-        }
-      }, 6 * 60 * 60 * 1000);
-
-      api.logger?.info("[MolTrust] Plugin started — trust verification ready");
-    },
-    stop: () => {
-      if (monitorInterval) {
-        clearInterval(monitorInterval);
-        monitorInterval = null;
-      }
-      api.logger?.info("[MolTrust] Plugin stopped");
-    },
-  });
+  logger.info(
+    "[moltrust] v2 plugin registered — hooks: before_install, before_tool_call, inbound_claim, gateway_start",
+  );
 }

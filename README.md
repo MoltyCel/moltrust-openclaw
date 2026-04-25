@@ -1,11 +1,11 @@
-# @moltrust/openclaw
+# @moltrust/openclaw v2
 
-[![MolTrust Verified](https://api.moltrust.ch/badge/did:moltrust:d34ed796a4dc4698)](https://moltrust.ch)
-[![npm](https://img.shields.io/npm/v/@moltrust/openclaw)](https://npmjs.com/package/@moltrust/openclaw)
+> W3C DID trust verification + lifecycle gating for [OpenClaw](https://openclaw.ai)
 
-> W3C DID trust verification plugin for [OpenClaw](https://openclaw.ai)
-
-MolTrust adds cryptographic agent identity verification to OpenClaw — so your agent knows who it's talking to before it acts.
+v2 adds the four lifecycle hooks the OpenClaw core already exposes (per
+`openclaw/openclaw#49971` close-comment) — `before_install`,
+`before_tool_call`, `inbound_claim`, `gateway_start` — on top of the v1
+agent tools / slash commands / gateway RPC / CLI surface.
 
 ## Install
 
@@ -13,18 +13,22 @@ MolTrust adds cryptographic agent identity verification to OpenClaw — so your 
 openclaw plugins install @moltrust/openclaw
 ```
 
-Then restart your Gateway.
+Restart your gateway.
 
-## What it does
+## What's new in v2
 
-| Feature | Details |
-|---------|---------|
-| **DID Verification** | Verify any agent's W3C DID identity on-chain (Base L2) |
-| **Trust Scores** | 0–100 reputation score combining on-chain signals + VC checks |
-| **Sybil Detection** | Cluster analysis + funding trace to detect fake agents |
-| **VC Check** | Verify Verifiable Credentials (skill, salesguard, travel, shopping) |
-| **Slash Commands** | `/trust` and `/trustscore` in any channel |
-| **CLI** | `openclaw moltrust verify/score/status` |
+| Hook | What it gates |
+|---|---|
+| `before_install` | Plugin / skill installs against `installAllowlist` / `installBlocklist` |
+| `before_tool_call` | Sensitive tool calls (default: `pay_*`, `transfer_*`, `x402_*`, `agent_call_*`) — blocks if own agent or any DID in params is below `minTrustScore` |
+| `inbound_claim` | Inbound messages — replies with a warning when sender DID is below `minTrustScore` |
+| `gateway_start` | Connectivity probe + optional self-verify |
+
+All hooks are **opt-in by default** (`minTrustScore: 0` = no-op). Set a
+non-zero threshold (e.g. `50`) to activate gating.
+
+New tool: `moltrust_endorse` — issue a SkillEndorsementCredential (W3C VC,
+90-day) for another agent, posting to `POST /skill/endorse`.
 
 ## Configuration
 
@@ -36,9 +40,14 @@ Then restart your Gateway.
         "enabled": true,
         "config": {
           "apiKey": "mt_live_...",
-          "minTrustScore": 40,
+          "minTrustScore": 50,
+          "agentDid": "did:moltrust:your-agent",
           "verifyOnStart": true,
-          "agentDid": "did:moltrust:your-agent-did"
+          "sensitivePrefixes": ["pay_", "transfer_", "x402_", "agent_call_"],
+          "gateAllTools": false,
+          "installAllowlist": [],
+          "installBlocklist": [],
+          "cacheTtlMs": 300000
         }
       }
     }
@@ -46,100 +55,42 @@ Then restart your Gateway.
 }
 ```
 
-Get an API key at [api.moltrust.ch/auth/signup](https://api.moltrust.ch/auth/signup).  
-Free tier: wallet score checks, no key needed.
+Get an API key at [api.moltrust.ch/auth/signup](https://api.moltrust.ch/auth/signup).
 
-## Agent Tools
-
-### `moltrust_verify`
-
-Verify an agent's DID before trusting it with tasks or payments.
+## Architecture
 
 ```
-moltrust_verify(did="did:moltrust:abc123")
+src/
+├── openclaw-types.ts     vendored OpenClaw plugin SDK types (subset)
+├── client.ts             MolTrustClient + LRU cache (5 min TTL)
+├── utils.ts              extractDids / isLikelyDid
+├── hooks/
+│   ├── before-install.ts     makeBeforeInstallHandler({cfg, logger})
+│   ├── before-tool-call.ts   makeBeforeToolCallHandler({cfg, client, logger})
+│   ├── inbound-claim.ts      makeInboundClaimHandler({cfg, client, logger})
+│   └── gateway-start.ts      makeGatewayStartHandler({cfg, client, logger})
+└── index.ts              wires hooks + v1 tools/commands/RPC/CLI
 ```
 
-Returns: verified status, credential details, trust score.
+Each hook handler uses a factory pattern (`makeXxxHandler(deps)`) so it's
+unit-testable without an OpenClaw host.
 
-### `moltrust_trust_score`
-
-Get a 0–100 trust score by DID or EVM wallet address.
-
-```
-moltrust_trust_score(identifier="0x3802...")
-moltrust_trust_score(identifier="did:moltrust:abc123")
-```
-
-## Slash Commands
-
-```
-/trust did:moltrust:abc123      — verify a DID
-/trustscore did:moltrust:abc123 — get trust score
-/trustscore 0x3802...           — score by wallet (free, no key)
-```
-
-## CLI
+## Tests
 
 ```bash
-openclaw moltrust status           # check API connectivity
-openclaw moltrust verify <did>     # verify a DID
-openclaw moltrust score <id>       # get trust score
+npm install
+npm test       # ≥15 vitest tests across hooks + client
+npm run build  # produces dist/*.js + *.d.ts
 ```
 
-## Why trust verification matters
+## Fail-open on lookup errors
 
-OpenClaw agents can hold wallets, execute payments, and install skills autonomously.  
-341 malicious skills were found on ClawHub in early 2026 — credential stealers, data exfiltration, prompt injection. VirusTotal catches known signatures, but not impersonation, sybil clusters, or slow-burn trust manipulation.
-
-MolTrust is the cryptographic trust layer OpenClaw is missing: W3C DID-based identity, on-chain anchoring on Base, and Verifiable Credentials that can't be faked.
-
-## Links
-
-- 🔍 [Wallet Trust Profile](https://moltrust.ch/wallet/0x380238347e58435f40B4da1F1A045A271D5838F5) — shadow score for any wallet
-
-- 🌐 [moltrust.ch](https://moltrust.ch)
-- 📖 [KYA Whitepaper](https://moltrust.ch/MolTrust_KYA_Whitepaper.pdf)
-- 🔧 [MCP Server](https://api.moltrust.ch/mcp) — 48 tools
-- 🐦 [@moltrust](https://x.com/moltrust)
-- 📦 [npm](https://npmjs.com/package/@moltrust/openclaw)
+`before_tool_call` and `inbound_claim` log a warning and **do not block** when
+a MolTrust API lookup fails (network down, rate limit, etc.). This is a
+deliberate design choice: a transient trust-API outage shouldn't take an
+agent fleet offline. Operators should monitor the warn-log for sustained
+failures.
 
 ## License
 
-MIT © [CryptoKRI GmbH](https://moltrust.ch)
-
----
-
-## 中文文档 · Chinese Developer Guide
-
-**MolTrust OpenClaw 插件** 为 AI Agent 提供密码学信任验证层。
-
-### 安装
-
-```bash
-openclaw plugins install @moltrust/openclaw
-```
-
-重启 Gateway 后即可使用。
-
-### 主要功能
-
-- `moltrust_verify` — 验证 Agent 的 W3C DID 身份
-- `moltrust_trust_score` — 获取 0–100 信任评分（链上信号 + 可验证凭证）
-- `/trust <did>` — 斜杠命令，任意频道可用
-- `/trustscore <wallet>` — 按钱包地址查询（免费，无需 API Key）
-
-### 信任评分等级
-
-| 评分 | 等级 | 含义 |
-|------|------|------|
-| 80–100 | A | 可信 |
-| 60–79 | B | 基本可信 |
-| 40–59 | C | 谨慎操作 |
-| 0–39 | D/F | 高风险 |
-
-### 链接
-
-- 📖 开发者文档：[moltrust.ch/developers](https://moltrust.ch/developers#chinese-guide)
-- 🔧 API：[api.moltrust.ch](https://api.moltrust.ch)
-- 📄 协议白皮书：[v0.8](https://moltrust.ch/MolTrust_Protocol_Whitepaper_v0.8.pdf)
-
+MIT © CryptoKRI GmbH (MolTrust), Zurich

@@ -1,15 +1,16 @@
 {
   "name": "@moltrust/openclaw",
-  "version": "1.0.1",
-  "description": "MolTrust trust verification plugin for OpenClaw — W3C DID identity, reputation scoring, and VC verification for AI agents",
+  "version": "2.0.0-alpha.0",
+  "description": "MolTrust v2 trust-provider plugin for OpenClaw — lifecycle hooks for install / tool-call / inbound / gateway-start gating, plus W3C DID identity verification, trust scoring, sybil detection.",
   "keywords": [
     "openclaw",
     "moltrust",
     "did",
     "verifiable-credentials",
     "agent-trust",
-    "x402",
-    "reputation"
+    "trust-provider",
+    "sybil-detection",
+    "x402"
   ],
   "homepage": "https://moltrust.ch",
   "repository": {
@@ -17,11 +18,11 @@
     "url": "https://github.com/MoltyCel/moltrust-openclaw"
   },
   "license": "MIT",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "skills",
     "openclaw.plugin.json"
   ],
   "openclaw": {
@@ -32,12 +33,12 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "lint": "eslint src/",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0",
-    "@types/node": "^20.0.0"
+    "vitest": "^1.6.0"
   }
 }

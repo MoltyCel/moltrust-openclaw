@@ -1,8 +1,8 @@
 {
   "id": "moltrust",
   "name": "MolTrust",
-  "description": "W3C DID identity verification, trust scoring, sybil detection, and Verifiable Credential checks for AI agents via MolTrust.",
-  "version": "1.0.0",
+  "description": "W3C DID identity verification, trust scoring, sybil detection, and lifecycle hooks (install / tool-call / inbound / gateway-start) for OpenClaw agents via MolTrust.",
+  "version": "2.0.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -10,7 +10,7 @@
     "properties": {
       "apiKey": {
         "type": "string",
-        "description": "MolTrust API key \u2014 get one at api.moltrust.ch/auth/signup"
+        "description": "MolTrust API key — get one at api.moltrust.ch/auth/signup"
       },
       "apiUrl": {
         "type": "string",
@@ -19,42 +19,57 @@
       },
       "minTrustScore": {
         "type": "number",
-        "description": "Minimum trust score (0\u2013100) to interact with.",
+        "description": "Block calls/messages below this score (0-100). 0 = no-op (opt-in).",
         "minimum": 0,
         "maximum": 100,
         "default": 0
+      },
+      "agentDid": {
+        "type": "string",
+        "description": "Your agent DID. Required for self-verification + own-score gating."
       },
       "verifyOnStart": {
         "type": "boolean",
         "description": "Verify own agent DID on gateway start.",
         "default": false
       },
-      "agentDid": {
-        "type": "string",
-        "description": "Your agent DID for self-verification."
+      "sensitivePrefixes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["pay_", "transfer_", "x402_", "agent_call_"],
+        "description": "Tool name prefixes treated as sensitive — gated by trust score."
+      },
+      "gateAllTools": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, gate ALL tool calls regardless of prefix."
+      },
+      "installAllowlist": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Plugin/skill packageNames allowed to install. Empty = no allowlist gate."
+      },
+      "installBlocklist": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Plugin/skill packageNames blocked from install."
+      },
+      "cacheTtlMs": {
+        "type": "integer",
+        "default": 300000,
+        "minimum": 0,
+        "description": "TTL for client-side cache of verify/score lookups (ms). 0 disables cache."
       }
     }
   },
   "uiHints": {
-    "apiKey": {
-      "label": "MolTrust API Key",
-      "sensitive": true,
-      "placeholder": "mt_live_..."
-    },
-    "apiUrl": {
-      "label": "API URL",
-      "placeholder": "https://api.moltrust.ch"
-    },
-    "minTrustScore": {
-      "label": "Minimum Trust Score",
-      "placeholder": "0"
-    },
-    "verifyOnStart": {
-      "label": "Verify own DID on start"
-    },
-    "agentDid": {
-      "label": "Your Agent DID",
-      "placeholder": "did:moltrust:..."
-    }
+    "apiKey": { "label": "MolTrust API Key", "sensitive": true, "placeholder": "mt_live_..." },
+    "apiUrl": { "label": "API URL", "placeholder": "https://api.moltrust.ch" },
+    "minTrustScore": { "label": "Minimum Trust Score (0=off)", "placeholder": "50" },
+    "agentDid": { "label": "Your Agent DID", "placeholder": "did:moltrust:..." },
+    "verifyOnStart": { "label": "Self-verify on gateway start" },
+    "gateAllTools": { "label": "Gate ALL tools (not just sensitive prefixes)" }
   }
 }
